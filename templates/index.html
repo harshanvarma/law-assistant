@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal Research Companion</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏛️ Legal Research Companion</h1>
+            <p>AI-powered research assistant for law students</p>
+        </header>
+
+        <div class="input-section">
+            <form id="researchForm">
+                <div class="form-group">
+                    <label for="paperText">Base Paper Content:</label>
+                    <textarea 
+                        id="paperText" 
+                        name="paper_text" 
+                        placeholder="Paste your base paper text here or key excerpts from your research paper..."
+                        rows="8"
+                        required
+                    ></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="researchAngle">Your Research Angle:</label>
+                    <textarea 
+                        id="researchAngle" 
+                        name="research_angle" 
+                        placeholder="Describe your new research direction, critique, or argument that builds upon the base paper..."
+                        rows="4"
+                        required
+                    ></textarea>
+                </div>
+
+                <button type="submit" id="searchBtn" class="btn-primary">
+                    <span id="searchText">🔍 Find Relevant Sources</span>
+                    <span id="loadingText" style="display: none;">🔄 Searching...</span>
+                </button>
+            </form>
+        </div>
+
+        <div id="resultsSection" style="display: none;">
+            <div class="results-header">
+                <h2>Research Results</h2>
+                <div id="thesisSection" class="thesis-box">
+                    <h3>📄 Extracted Thesis:</h3>
+                    <p id="thesisText"></p>
+                </div>
+            </div>
+
+            <div id="sourcesContainer">
+                <h3>📚 Relevant Sources (Ranked by Relevance)</h3>
+                <div id="sourcesList"></div>
+            </div>
+
+            <div id="keywordsSection">
+                <h3>🔑 Keywords Used:</h3>
+                <div id="keywordsList"></div>
+            </div>
+        </div>
+
+        <div id="summaryModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>📝 Paper Summary</h3>
+                    <span class="close-btn" onclick="closeSummaryModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div id="summaryContent">Loading summary...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSources = [];
+
+        document.getElementById('researchForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const searchBtn = document.getElementById('searchBtn');
+            const searchText = document.getElementById('searchText');
+            const loadingText = document.getElementById('loadingText');
+            
+            // Show loading state
+            searchText.style.display = 'none';
+            loadingText.style.display = 'inline';
+            searchBtn.disabled = true;
+            
+            const formData = {
+                paper_text: document.getElementById('paperText').value,
+                research_angle: document.getElementById('researchAngle').value
+            };
+            
+            try {
+                const response = await fetch('/api/research', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    displayResults(result);
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                alert('Network error: ' + error.message);
+            } finally {
+                // Reset loading state
+                searchText.style.display = 'inline';
+                loadingText.style.display = 'none';
+                searchBtn.disabled = false;
+            }
+        });
+
+        function displayResults(data) {
+            currentSources = data.sources;
+            
+            // Show results section
+            document.getElementById('resultsSection').style.display = 'block';
+            
+            // Display thesis
+            document.getElementById('thesisText').textContent = data.thesis;
+            
+            // Display sources
+            const sourcesList = document.getElementById('sourcesList');
+            sourcesList.innerHTML = '';
+            
+            data.sources.forEach((source, index) => {
+                const sourceDiv = document.createElement('div');
+                sourceDiv.className = 'source-item';
+                
+                const relevanceClass = getRelevanceClass(source.relevance_score);
+                
+                sourceDiv.innerHTML = `
+                    <div class="source-header">
+                        <div class="source-title">
+                            <h4><a href="${source.link}" target="_blank">${source.title}</a></h4>
+                            <span class="source-badge">${source.source}</span>
+                        </div>
+                        <div class="relevance-score ${relevanceClass}">
+                            ${source.relevance_score}/10
+                        </div>
+                    </div>
+                    <div class="source-meta">
+                        <p><strong>Citation:</strong> ${source.citation}</p>
+                    </div>
+                    <div class="source-snippet">
+                        <p>${source.snippet}</p>
+                    </div>
+                    <div class="source-reasoning">
+                        <p><strong>Relevance:</strong> ${source.reasoning}</p>
+                    </div>
+                    <div class="source-actions">
+                        <button class="btn-secondary" onclick="summarizeSource(${index})">
+                            📄 Summarize
+                        </button>
+                        <button class="btn-secondary" onclick="copyAPA('${source.title}', '${source.citation}', '${source.link}')">
+                            📋 Copy APA Citation
+                        </button>
+                    </div>
+                `;
+                
+                sourcesList.appendChild(sourceDiv);
+            });
+            
+            // Display keywords
+            const keywordsList = document.getElementById('keywordsList');
+            keywordsList.innerHTML = '';
+            
+            data.keywords_used.forEach(keyword => {
+                const keywordSpan = document.createElement('span');
+                keywordSpan.className = 'keyword-tag';
+                keywordSpan.textContent = keyword;
+                keywordsList.appendChild(keywordSpan);
+            });
+            
+            // Scroll to results
+            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function getRelevanceClass(score) {
+            if (score >= 8) return 'relevance-high';
+            if (score >= 6) return 'relevance-medium';
+            return 'relevance-low';
+        }
+
+        async function summarizeSource(index) {
+            const source = currentSources[index];
+            const modal = document.getElementById('summaryModal');
+            const summaryContent = document.getElementById('summaryContent');
+            
+            // Show modal
+            modal.style.display = 'block';
+            summaryContent.innerHTML = 'Loading summary...';
+            
+            try {
+                const response = await fetch('/api/summarize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        content: source.title + '. ' + source.snippet
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    summaryContent.innerHTML = `
+                        <h4>${source.title}</h4>
+                        <div class="summary-text">${result.summary.replace(/\n/g, '<br>')}</div>
+                        <div class="summary-meta">
+                            <p><strong>Source:</strong> <a href="${source.link}" target="_blank">${source.source}</a></p>
+                        </div>
+                    `;
+                } else {
+                    summaryContent.innerHTML = 'Error generating summary: ' + result.error;
+                }
+            } catch (error) {
+                summaryContent.innerHTML = 'Network error: ' + error.message;
+            }
+        }
+
+        function closeSummaryModal() {
+            document.getElementById('summaryModal').style.display = 'none';
+        }
+
+        function copyAPA(title, citation, link) {
+            const currentYear = new Date().getFullYear();
+            const apaFormat = `${citation}. (${currentYear}). ${title}. Retrieved from ${link}`;
+            
+            navigator.clipboard.writeText(apaFormat).then(() => {
+                alert('APA citation copied to clipboard!');
+            }).catch(() => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = apaFormat;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('APA citation copied to clipboard!');
+            });
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('summaryModal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
